@@ -1,10 +1,25 @@
 import RPi.GPIO as GPIO
 import serial
+import time
 import atexit
+import threading
+from queue import SimpleQueue, Empty
 
 STROBE_PIN = 23
 UART_PORT = '/dev/serial0'
 BAUD_RATE = 460800
+BOUNCE_MS = None  # set to an int (ms) if you see double triggers
+strobe_queue = SimpleQueue()
+total_strobe_count = 0
+payload_value = 1
+stop_event = threading.Event()
+
+
+def on_strobe(channel):  # callback from GPIO thread
+    try:
+        strobe_queue.put_nowait(time.monotonic())
+    except Exception:
+        pass
 
 def cleanup_gpio():
     try:
@@ -13,47 +28,82 @@ def cleanup_gpio():
         pass
 
 
-def initialize_gpio(pin):
+def initialize_gpio(pin, retries=20, retry_delay_s=0.05):
+    cleanup_gpio()
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BCM)
-    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+    last_error = None
+    for _ in range(retries):
+        try:
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            return
+        except Exception as error:
+            last_error = error
+            cleanup_gpio()
+            time.sleep(retry_delay_s)
+            GPIO.setmode(GPIO.BCM)
+
+    raise RuntimeError(f"Failed to setup GPIO {pin}: {last_error}")
+
+# Setup Serial
+ser = serial.Serial(UART_PORT, BAUD_RATE)
+atexit.register(cleanup_gpio)
+initialize_gpio(STROBE_PIN)
+if BOUNCE_MS is None:
+    GPIO.add_event_detect(STROBE_PIN, GPIO.RISING, callback=on_strobe)
+else:
+    GPIO.add_event_detect(STROBE_PIN, GPIO.RISING, callback=on_strobe, bouncetime=BOUNCE_MS)
 
 
-def main():
-    atexit.register(cleanup_gpio)
-    initialize_gpio(STROBE_PIN)
+def strobe_worker():
+    global payload_value, total_strobe_count
 
-    serial_port = serial.Serial(UART_PORT, BAUD_RATE)
-    payload_value = 1
-    total_strobe_count = 0
+    while not stop_event.is_set():
+        try:
+            strobe_queue.get(timeout=0.5)
+        except Empty:
+            continue
+        except RuntimeError as error:
+            if 'setup() the GPIO channel first' in str(error):
+                initialize_gpio(STROBE_PIN)
+                continue
+            raise
 
-    print(f"Waiting for GPIO {STROBE_PIN} HIGH pulses... (Ctrl+C to exit)")
+        total_strobe_count += 1
 
+        data_bytes = payload_value.to_bytes(4, byteorder='big')
+        ser.write(data_bytes)
+
+        bin_str = f"{payload_value:032b}"
+        spaced_bin = f"{bin_str[0:8]} {bin_str[8:16]} {bin_str[16:24]} {bin_str[24:32]}"
+        print(f"Number Sent: {payload_value:<3} | 4 Bytes: {spaced_bin} | Total Strobe: {total_strobe_count}")
+
+        payload_value += 1
+        if payload_value > 255:
+            payload_value = 1
+
+try:
+    print(f"Waiting for strobe on GPIO {STROBE_PIN}... (Press Ctrl+C to exit)")
+    worker = threading.Thread(target=strobe_worker, daemon=True)
+    worker.start()
+
+    while worker.is_alive():
+        worker.join(timeout=0.5)
+
+except KeyboardInterrupt:
+    print("\nExiting program.")
+    stop_event.set()
+
+finally:
+    stop_event.set()
     try:
-        while True:
-            GPIO.wait_for_edge(STROBE_PIN, GPIO.RISING)
-            total_strobe_count += 1
-
-            data_bytes = payload_value.to_bytes(4, byteorder='big')
-            bytes_written = serial_port.write(data_bytes)
-            serial_port.flush()
-
-            if bytes_written == 4:
-                spaced_bin = format(payload_value, '032b')
-                spaced_bin = ' '.join(spaced_bin[i:i + 8] for i in range(0, 32, 8))
-                print(f"Number Sent: {payload_value:<3} | 4 Bytes: {spaced_bin} | Total Strobe: {total_strobe_count}")
-                payload_value = 1 if payload_value == 0xFFFFFFFF else payload_value + 1
-            else:
-                print(f"Warning: wrote {bytes_written} bytes")
-
-            GPIO.wait_for_edge(STROBE_PIN, GPIO.FALLING)
-
-    except KeyboardInterrupt:
-        print("\nExiting program.")
-    finally:
-        serial_port.close()
-        cleanup_gpio()
-
-
-if __name__ == "__main__":
-    main()
+        GPIO.remove_event_detect(STROBE_PIN)
+    except Exception:
+        pass
+    try:
+        worker.join(timeout=1)
+    except Exception:
+        pass
+    cleanup_gpio()
+    ser.close()
