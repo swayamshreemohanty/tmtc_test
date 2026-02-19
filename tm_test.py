@@ -72,12 +72,12 @@ def strobe_worker():
 
         total_strobe_count += 1
 
-        data_bytes = payload_value.to_bytes(4, byteorder='big')
+        data_bytes = payload_value.to_bytes(4, byteorder='little')  # send LSB-first
         ser.write(data_bytes)
 
-        bin_str = f"{payload_value:032b}"
-        spaced_bin = f"{bin_str[0:8]} {bin_str[8:16]} {bin_str[16:24]} {bin_str[24:32]}"
-        print(f"Number Sent: {payload_value:<3} | 4 Bytes: {spaced_bin} | Total Strobe: {total_strobe_count}")
+        # Show bytes in transmit order (LSB-first)
+        spaced_bin = " ".join(f"{b:08b}" for b in data_bytes)
+        print(f"Number Sent: {payload_value:<3} | 4 Bytes (LSB first): {spaced_bin} | Total Strobe: {total_strobe_count}")
 
         payload_value += 1
         if payload_value > 255:
