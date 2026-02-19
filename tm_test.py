@@ -84,7 +84,7 @@ try:
         print(f"Number Sent: {payload_value:<3} | 4 Bytes: {spaced_bin} | Total Strobe: {total_strobe_count}")
         
         payload_value += 1
-        if payload_value > 255:
+        if payload_value > 0xFFFFFFFF:
             payload_value = 1
 
 except KeyboardInterrupt:
