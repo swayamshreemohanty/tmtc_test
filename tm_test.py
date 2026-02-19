@@ -1,26 +1,73 @@
 import RPi.GPIO as GPIO
 import serial
+import time
+import atexit
 
 STROBE_PIN = 23
 UART_PORT = '/dev/serial0'
-BAUD_RATE = 9600
+BAUD_RATE = 460800
 
-# Setup GPIO
-GPIO.setwarnings(False)
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(STROBE_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+def cleanup_gpio():
+    try:
+        GPIO.cleanup()
+    except Exception:
+        pass
+
+
+def initialize_gpio(pin, retries=20, retry_delay_s=0.05):
+    cleanup_gpio()
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BCM)
+
+    last_error = None
+    for _ in range(retries):
+        try:
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            return
+        except Exception as error:
+            last_error = error
+            cleanup_gpio()
+            time.sleep(retry_delay_s)
+            GPIO.setmode(GPIO.BCM)
+
+    raise RuntimeError(f"Failed to setup GPIO {pin}: {last_error}")
 
 # Setup Serial
 ser = serial.Serial(UART_PORT, BAUD_RATE)
+atexit.register(cleanup_gpio)
+initialize_gpio(STROBE_PIN)
 
 total_strobe_count = 0
 payload_value = 1
 
+
+def wait_for_rising_edge(pin):
+    try:
+        GPIO.wait_for_edge(pin, GPIO.RISING)
+        return
+    except Exception:
+        pass
+
+    last_state = GPIO.input(pin)
+
+    while True:
+        state = GPIO.input(pin)
+        if last_state == GPIO.LOW and state == GPIO.HIGH:
+            return
+
+        last_state = state
+
 try:
-    print(f"Waiting for 2ms strobe on GPIO {STROBE_PIN}... (Press Ctrl+C to exit)")
+    print(f"Waiting for strobe on GPIO {STROBE_PIN}... (Press Ctrl+C to exit)")
     
     while True:
-        GPIO.wait_for_edge(STROBE_PIN, GPIO.RISING, bouncetime=2)
+        try:
+            wait_for_rising_edge(STROBE_PIN)
+        except RuntimeError as error:
+            if 'setup() the GPIO channel first' in str(error):
+                initialize_gpio(STROBE_PIN)
+                continue
+            raise
         
         total_strobe_count += 1
         
@@ -44,5 +91,5 @@ except KeyboardInterrupt:
     print("\nExiting program.")
 
 finally:
-    GPIO.cleanup()
+    cleanup_gpio()
     ser.close()
