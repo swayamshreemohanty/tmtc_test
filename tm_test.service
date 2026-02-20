@@ -1,0 +1,12 @@
+[Unit]
+Description=TM Test Service
+
+[Service]
+Type=simple
+User=serendipityspace
+WorkingDirectory=/home/serendipityspace/tmtc_test
+ExecStart=/home/serendipityspace/tmtc_test/.venv/bin/python3 /home/serendipityspace/tmtc_test/tm_test.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
