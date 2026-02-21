@@ -21,7 +21,7 @@ import sys
 UART_PORT  = '/dev/serial0'
 BAUD_RATE  = 921600
 TIMEOUT_S  = 1.0          # read() timeout in seconds
-READ_CHUNK = 256           # max bytes to pull per iteration
+MAX_CHUNK  = 4096          # upper cap on bytes read per iteration
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -139,7 +139,7 @@ def display_all(data: bytes, packet_no: int) -> None:
 def main() -> None:
     print(f"Opening UART  : {UART_PORT}")
     print(f"Baud rate     : {BAUD_RATE}")
-    print(f"Read chunk    : {READ_CHUNK} bytes")
+    print(f"Read mode     : dynamic (in_waiting), max {MAX_CHUNK} bytes")
     print(f"Timeout       : {TIMEOUT_S} s")
     print_separator('═')
     print("Listening for data... (Ctrl+C to stop)")
@@ -163,9 +163,22 @@ def main() -> None:
 
     try:
         while True:
-            raw = ser.read(READ_CHUNK)   # blocks up to TIMEOUT_S
+            # Wait until at least 1 byte arrives
+            waiting = ser.in_waiting
+            if waiting == 0:
+                # Block briefly for the first byte, then re-check
+                raw = ser.read(1)
+                if not raw:
+                    continue
+                # Grab anything else that arrived while we waited
+                waiting = ser.in_waiting
+                if waiting:
+                    raw += ser.read(min(waiting, MAX_CHUNK - 1))
+            else:
+                raw = ser.read(min(waiting, MAX_CHUNK))
+
             if not raw:
-                continue                 # timeout with no data → loop
+                continue
 
             packet_no  += 1
             byte_total += len(raw)
