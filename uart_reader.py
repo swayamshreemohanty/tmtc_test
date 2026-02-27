@@ -18,7 +18,7 @@ import time
 import sys
 
 # ── Configuration ────────────────────────────────────────────────────────────
-UART_PORT  = '/dev/serial0'
+UART_PORT  = '/dev/ttyAMA0'  # Raspberry Pi's primary UART
 BAUD_RATE  = 921600
 TIMEOUT_S  = 1.0          # read() timeout in seconds
 MAX_CHUNK  = 4096          # upper cap on bytes read per iteration
