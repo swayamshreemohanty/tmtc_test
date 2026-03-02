@@ -4,8 +4,8 @@ Description=TM Test Service
 [Service]
 Type=simple
 User=serendipityspace
-WorkingDirectory=/home/serendipityspace/tmtc_test
-ExecStart=/home/serendipityspace/tmtc_test/.venv/bin/python3 /home/serendipityspace/tmtc_test/tm_test.py
+WorkingDirectory=/home/serendipityspace/tifr/tmtc_test
+ExecStart=/home/serendipityspace/tifr/tmtc_test/tm_fast
 Restart=always
 
 [Install]
