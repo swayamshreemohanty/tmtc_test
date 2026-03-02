@@ -8,6 +8,7 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include <gpiod.h>
+#include <time.h>
 
 #define UART_DEVICE "/dev/ttyAMA0"
 #define BAUDRATE 921600
@@ -15,9 +16,15 @@
 #define GPIO_CHIP "/dev/gpiochip0"
 #define GPIO_LINE 23
 
+#define MIN_PERIOD_US 150   // Ignore edges faster than this
+
 int setup_uart()
 {
     int fd = open(UART_DEVICE, O_RDWR | O_NOCTTY | O_SYNC);
+    if (fd < 0) {
+        perror("UART open failed");
+        return -1;
+    }
 
     struct termios tty;
     tcgetattr(fd, &tty);
@@ -66,22 +73,35 @@ int main()
         gpiod_chip_request_lines(chip, req_cfg, line_cfg);
 
     struct gpiod_edge_event_buffer *buffer =
-        gpiod_edge_event_buffer_new(32);
+        gpiod_edge_event_buffer_new(16);
 
     uint8_t value = 0;
+
+    struct timespec last = {0};
 
     while (1)
     {
         if (gpiod_line_request_wait_edge_events(request, -1) > 0)
         {
             int events =
-                gpiod_line_request_read_edge_events(request, buffer, 32);
+                gpiod_line_request_read_edge_events(request, buffer, 16);
 
-            for (int i = 0; i < events; i++)
+            if (events > 0)
             {
-                uint32_t word = 0x01010101u * value;
-                write(uart, &word, 4);
-                value++;
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+                uint64_t diff =
+                    (now.tv_sec - last.tv_sec) * 1000000ULL +
+                    (now.tv_nsec - last.tv_nsec) / 1000ULL;
+
+                if (diff > MIN_PERIOD_US)
+                {
+                    uint32_t word = 0x01010101u * value;
+                    write(uart, &word, 4);
+                    value++;
+                    last = now;
+                }
             }
         }
     }
