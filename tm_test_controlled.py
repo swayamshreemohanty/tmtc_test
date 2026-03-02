@@ -8,7 +8,7 @@ import argparse
 from queue import SimpleQueue, Empty
 
 STROBE_PIN = 23
-UART_PORT = '/dev/serial0'
+UART_PORT = '/dev/ttyAMA0'
 BAUD_RATE = 921600
 BOUNCE_MS = None  # set to an int (ms) if you see double triggers
 strobe_queue = SimpleQueue()
@@ -50,13 +50,14 @@ def initialize_gpio(pin, retries=20, retry_delay_s=0.05):
     raise RuntimeError(f"Failed to setup GPIO {pin}: {last_error}")
 
 def get_payload_byte0(val):
-    return val
+    return val & 0xFF
 
 def get_payload_scan(val, lane):
-    return val << (lane * 8)
+    return (val & 0xFF) << (lane * 8)
 
 def get_payload_all(val):
-    return (val) | (val << 8) | (val << 16) | (val << 24)
+    v = val & 0xFF
+    return v | (v << 8) | (v << 16) | (v << 24)
 
 def get_user_mode():
     parser = argparse.ArgumentParser(description="UART Strobe Test")
@@ -81,11 +82,20 @@ def get_user_mode():
         except (KeyboardInterrupt, EOFError):
             sys.exit(0)
 
-MODE = get_user_mode()
+# MODE = get_user_mode() or "all"
+MODE = "all"
 print(f"Starting in MODE: {MODE}")
 
 # Setup Serial
-ser = serial.Serial(UART_PORT, BAUD_RATE)
+ser = serial.Serial(
+    port=UART_PORT,
+    baudrate=BAUD_RATE,
+    bytesize=serial.EIGHTBITS,
+    parity=serial.PARITY_NONE,
+    stopbits=serial.STOPBITS_ONE,
+    timeout=0,
+    write_timeout=0,
+)
 atexit.register(cleanup_gpio)
 initialize_gpio(STROBE_PIN)
 if BOUNCE_MS is None:
@@ -121,6 +131,7 @@ def strobe_worker():
 
         data_bytes = val_32.to_bytes(4, byteorder='little')  # send LSB-first
         ser.write(data_bytes)
+        ser.flush()
 
         # Show bytes in transmit order (LSB-first)
         spaced_bin = " ".join(f"{b:08b}" for b in data_bytes)

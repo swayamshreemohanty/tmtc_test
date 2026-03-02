@@ -6,7 +6,7 @@ import threading
 from queue import SimpleQueue, Empty
 
 STROBE_PIN = 23
-UART_PORT = '/dev/serial0'
+UART_PORT = '/dev/ttyAMA0'
 BAUD_RATE = 921600
 BOUNCE_MS = None  # set to an int (ms) if you see double triggers
 strobe_queue = SimpleQueue()
