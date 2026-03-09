@@ -11,7 +11,7 @@
 #include <time.h>
 
 #define UART_DEVICE "/dev/ttyAMA0"
-#define BAUDRATE 921600
+#define BAUDRATE B921600
 
 #define GPIO_CHIP "/dev/gpiochip0"
 #define GPIO_LINE 23
